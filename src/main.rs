@@ -657,8 +657,19 @@ impl RpnCompiler {
                 buf.push_str(&format!("  push {}\n", n));
             },
             UniOp { ref op, ref e} => {
-                self.compile_uniop(op, buf);
-                self.compile_inner(e, buf);
+                // self.compile_uniop(op, buf);
+                // self.compile_inner(e, buf);
+                match op.value {
+                    UniOpKind::Plus => {
+                        self.compile_inner(e, buf);
+                    }
+                    UniOpKind::Minus => {
+                        self.compile_inner(e, buf);
+                        buf.push_str("  pop rax\n");
+                        buf.push_str("  neg rax\n");
+                        buf.push_str("  push rax\n");
+                    }
+                }
             }
             BinOp {
                 ref op,

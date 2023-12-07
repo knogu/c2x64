@@ -20,6 +20,9 @@ assert() {
   fi
 }
 
+assert 10 '-10+20'
+assert 10 '-(-10)'
+assert 10 '-(-(+10))'
 assert 0 0
 assert 42 42
 assert 21 '5+20-4'
