@@ -638,15 +638,20 @@ impl RpnCompiler {
 
     pub fn compile(&mut self, expr: &Ast) -> String {
         let mut buf = String::new();
+        buf.push_str(".intel_syntax noprefix\n");
+        buf.push_str(".globl main\n");
+        buf.push_str("main:\n");
+
         self.compile_inner(expr, &mut buf);
+
+        buf.push_str("  pop rax\n");
+        buf.push_str("  ret\n");
         buf
     }
 
     pub fn compile_inner(&mut self, expr: &Ast, buf: &mut String) {
         use self::AstKind::*;
-        buf.push_str(".intel_syntax noprefix\n");
-        buf.push_str(".globl main\n");
-        buf.push_str("main:\n");
+
         match expr.value {
             Num(n) => {
                 buf.push_str(&format!("  push {}\n", n));
@@ -661,15 +666,30 @@ impl RpnCompiler {
                 ref r,
             } => {
                 self.compile_inner(l, buf);
-                buf.push_str(" ");
                 self.compile_inner(r, buf);
-                buf.push_str(" ");
-                self.compile_binop(op, buf)
+                buf.push_str("  pop rdi\n");
+                buf.push_str("  pop rax\n");
+
+                match op.value {
+                    BinOpKind::Add => {
+                        buf.push_str("  add rax, rdi\n");
+                    }
+                    BinOpKind::Sub => {
+                        buf.push_str("  sub rax, rdi\n");
+                    }
+                    BinOpKind::Mult => {
+                        buf.push_str("  imul rax, rdi\n");
+                    }
+                    BinOpKind::Div => {
+                        buf.push_str("  cqo\n");
+                        buf.push_str("  idiv rdi\n");
+                    }
+                    _ => {}
+                }
+
+                buf.push_str("  push rax\n");
             }
         }
-
-        buf.push_str("  pop rax\n");
-        buf.push_str("  ret\n");
     }
 
     fn compile_uniop(&mut self, op: &UniOp, buf: &mut String) {
