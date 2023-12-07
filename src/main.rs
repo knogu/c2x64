@@ -644,8 +644,13 @@ impl RpnCompiler {
 
     pub fn compile_inner(&mut self, expr: &Ast, buf: &mut String) {
         use self::AstKind::*;
+        buf.push_str(".intel_syntax noprefix\n");
+        buf.push_str(".globl main\n");
+        buf.push_str("main:\n");
         match expr.value {
-            Num(n) => buf.push_str(&n.to_string()),
+            Num(n) => {
+                buf.push_str(&format!("  push {}\n", n));
+            },
             UniOp { ref op, ref e} => {
                 self.compile_uniop(op, buf);
                 self.compile_inner(e, buf);
@@ -662,6 +667,9 @@ impl RpnCompiler {
                 self.compile_binop(op, buf)
             }
         }
+
+        buf.push_str("  pop rax\n");
+        buf.push_str("  ret\n");
     }
 
     fn compile_uniop(&mut self, op: &UniOp, buf: &mut String) {
@@ -704,7 +712,7 @@ fn main() {
     let mut lines = stdin.lines();
 
     loop {
-        prompt("> ").unwrap();
+        // prompt("> ").unwrap();
         if let Some(Ok(line)) = lines.next() {
             let ast = match line.parse::<Ast>() {
                 Ok(ast) => ast,
@@ -714,7 +722,7 @@ fn main() {
                     continue;
                 }
             };
-            println!("{:?}", ast);
+            // println!("{:?}", ast);
             let rpn = compiler.compile(&ast);
             println!("{}", rpn);
         } else {
