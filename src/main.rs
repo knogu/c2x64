@@ -33,6 +33,7 @@ enum TokenKind {
     Slash,
     LParen,
     RParen,
+    Eq,
 }
 
 type Token = Annot<TokenKind>;
@@ -65,6 +66,10 @@ impl Token {
     fn rparen(loc: Loc) -> Self {
         Self::new(TokenKind::RParen, loc)
     }
+
+    fn eq(loc: Loc) -> Self {
+        Self::new(TokenKind::Eq, loc)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -86,21 +91,21 @@ impl LexError {
 }
 
 /// `pos` のバイトが期待するものであれば1バイト消費して `pos`を1進める
-fn consume_byte(input: &[u8], pos: usize, b: u8) -> Result<(u8, usize), LexError> {
-    // posが入力サイズ以上なら入力が終わっている。
-    // 1バイト期待しているのに終わっているのでエラー
-    if input.len() <= pos {
+fn consume_byte(input: &[u8], pos: usize, b: &[u8]) -> Result<(Vec<u8>, usize), LexError> {
+    let size = b.len();
+    // Check input length is eq or gt expected bytes size
+    if input.len() + size - 1 <= pos {
         return Err(LexError::eof(Loc(pos, pos)));
     }
     // 入力が期待するものでなければエラー
-    if input[pos] != b {
+    if input[pos..pos + size] != b[..size] {
         return Err(LexError::invalid_char(
             input[pos] as char,
             Loc(pos, pos + 1),
         ));
     }
 
-    Ok((b, pos + 1))
+    Ok((b[..size].to_vec(), pos + size))
 }
 fn recognize_many(input: &[u8], mut pos: usize, mut f: impl FnMut(u8) -> bool) -> usize {
     while pos < input.len() && f(input[pos]) {
@@ -129,29 +134,32 @@ fn lex_plus(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     //     Ok((_, end)) => (Token::plus(Loc(start, end)), end),
     //     Err(err) => Err(err),
     // }
-    consume_byte(input, start, b'+').map(|(_, end)| (Token::plus(Loc(start, end)), end))
+    consume_byte(input, start, b"+").map(|(_, end)| (Token::plus(Loc(start, end)), end))
 }
 
 fn lex_minus(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
-    consume_byte(input, start, b'-').map(|(_, end)| (Token::minus(Loc(start, end)), end))
+    consume_byte(input, start, b"-").map(|(_, end)| (Token::minus(Loc(start, end)), end))
 }
 fn lex_asterisk(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
-    consume_byte(input, start, b'*').map(|(_, end)| (Token::asterisk(Loc(start, end)), end))
+    consume_byte(input, start, b"*").map(|(_, end)| (Token::asterisk(Loc(start, end)), end))
 }
 fn lex_slash(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
-    consume_byte(input, start, b'/').map(|(_, end)| (Token::slash(Loc(start, end)), end))
+    consume_byte(input, start, b"/").map(|(_, end)| (Token::slash(Loc(start, end)), end))
 }
 fn lex_lparen(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
-    consume_byte(input, start, b'(').map(|(_, end)| (Token::lparen(Loc(start, end)), end))
+    consume_byte(input, start, b"(").map(|(_, end)| (Token::lparen(Loc(start, end)), end))
 }
 fn lex_rparen(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
-    consume_byte(input, start, b')').map(|(_, end)| (Token::rparen(Loc(start, end)), end))
+    consume_byte(input, start, b")").map(|(_, end)| (Token::rparen(Loc(start, end)), end))
+}
+
+fn lex_eq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b"==").map(|(_, end)| (Token::eq(Loc(start, end)), end))
 }
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
     let pos = recognize_many(input, pos, |b| b" \n\t".contains(&b));
     Ok(((), pos))
 }
-
 
 fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
@@ -168,6 +176,12 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     }
 
     while pos < input.len() {
+        if pos + 1 < input.len() {
+            if &input[pos..pos+2] == b"==" {
+                lex_a_token!(lex_eq(input, pos));
+                continue
+            }
+        }
         match input[pos] {
             // 遷移図通りの実装
             b'0'..=b'9' => lex_a_token!(lex_number(input, pos)),
@@ -328,7 +342,9 @@ where Tokens: Iterator<Item = Token>,
     Ok(e)
 }
 
-fn parse_atom<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+// primary = unumber
+//       | "(" expr3 ")"
+fn primary<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
 where Tokens: Iterator<Item = Token>,
 {
     tokens
@@ -353,7 +369,10 @@ where Tokens: Iterator<Item = Token>,
         })
 }
 
-fn parse_expr1<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+
+// unary = ("+" | "-") primary
+//        | primary
+fn unary<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
 where Tokens: Iterator<Item = Token>,
 {
     match tokens.peek().map(|tok| tok.value) {
@@ -369,20 +388,21 @@ where Tokens: Iterator<Item = Token>,
                      }) => UniOp::minus(loc),
                 _ => unreachable!(),
             };
-            let e = parse_atom(tokens)?;
+            let e = primary(tokens)?;
             let loc = op.loc.merge(&e.loc);
             Ok(Ast::uniop(op, e, loc))
         }
-        _ => parse_atom(tokens),
+        _ => primary(tokens),
     }
 }
 
-fn parse_expr2<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+// mul = unary ("*" unary| "/" unary)*
+fn mul<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     where
         Tokens: Iterator<Item = Token>,
 {
     // `parse_left_binop` に渡す関数を定義する
-    fn parse_expr2_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
+    fn parse_mul_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
         where
             Tokens: Iterator<Item = Token>,
     {
@@ -398,13 +418,14 @@ fn parse_expr2<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
         Ok(op)
     }
 
-    parse_left_binop(tokens, parse_expr1, parse_expr2_op)
+    parse_left_binop(tokens, unary, parse_mul_op)
 }
 
-fn parse_expr3<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+// add = mul ("+" mul | "-" mul)*
+fn add<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
 where Tokens: Iterator<Item = Token>,
 {
-    fn parse_expr3_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
+    fn parse_add_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
     where Tokens: Iterator<Item = Token>,
     {
         let op = tokens
@@ -419,15 +440,28 @@ where Tokens: Iterator<Item = Token>,
         Ok(op)
     }
 
-    parse_left_binop(tokens, parse_expr2, parse_expr3_op)
+    parse_left_binop(tokens, mul, parse_add_op)
+}
+
+// fn parse_relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+//     where Tokens: Iterator<Item = Token>,
+// {
+//
+// }
+//
+//
+// equality   = relational ("==" relational | "!=" relational)*
+fn parse_equality<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+where Tokens: Iterator<Item = Token>,
+{
+    add(tokens)
 }
 
 fn parse_expr<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     where
         Tokens: Iterator<Item = Token>,
 {
-    // `parse_expr`は `parse_expr3` を呼ぶだけ
-    parse_expr3(tokens)
+    parse_equality(tokens)
 }
 
 fn parse(tokens: Vec<Token>) -> Result<Ast, ParseError> {
@@ -517,6 +551,7 @@ impl fmt::Display for TokenKind {
             Slash => write!(f, "/"),
             LParen => write!(f, "("),
             RParen => write!(f, ")"),
+            Eq => write!(f, "=="),
         }
     }
 }
@@ -695,7 +730,6 @@ impl RpnCompiler {
                         buf.push_str("  cqo\n");
                         buf.push_str("  idiv rdi\n");
                     }
-                    _ => {}
                 }
 
                 buf.push_str("  push rax\n");
