@@ -37,6 +37,8 @@ enum TokenKind {
     Neq,
     Lt, // Less than
     Le, // Less or Equal
+    Gt, // Greater than
+    Ge, // Greater or Equal
 }
 
 type Token = Annot<TokenKind>;
@@ -84,6 +86,14 @@ impl Token {
 
     fn lt(loc: Loc) -> Self {
         Self::new(TokenKind::Lt, loc)
+    }
+
+    fn ge(loc: Loc) -> Self {
+        Self::new(TokenKind::Ge, loc)
+    }
+
+    fn gt(loc: Loc) -> Self {
+        Self::new(TokenKind::Gt, loc)
     }
 }
 
@@ -172,6 +182,10 @@ fn lex_lt(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"<").map(|(_, end)| (Token::lt(Loc(start, end)), end))
 }
 
+fn lex_gt(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b">").map(|(_, end)| (Token::gt(Loc(start, end)), end))
+}
+
 fn lex_eq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"==").map(|(_, end)| (Token::eq(Loc(start, end)), end))
 }
@@ -182,6 +196,10 @@ fn lex_neq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
 
 fn lex_le(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"<=").map(|(_, end)| (Token::le(Loc(start, end)), end))
+}
+
+fn lex_ge(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b">=").map(|(_, end)| (Token::ge(Loc(start, end)), end))
 }
 
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
@@ -217,6 +235,10 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
                 lex_a_token!(lex_le(input, pos));
                 continue
             }
+            if &input[pos..pos+2] == b">=" {
+                lex_a_token!(lex_ge(input, pos));
+                continue
+            }
         }
         match input[pos] {
             // 遷移図通りの実装
@@ -228,6 +250,7 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             b'(' => lex_a_token!(lex_lparen(input, pos)),
             b')' => lex_a_token!(lex_rparen(input, pos)),
             b'<' => lex_a_token!(lex_lt(input, pos)),
+            b'>' => lex_a_token!(lex_gt(input, pos)),
             // 空白を扱う
             b' ' | b'\n' | b'\t' => {
                 let ((), p) = skip_spaces(input, pos)?;
@@ -286,6 +309,8 @@ enum BinOpKind {
     Neq,
     Lt,
     Le,
+    Gt,
+    Ge,
 }
 
 type BinOp = Annot<BinOpKind>;
@@ -321,6 +346,14 @@ impl BinOp {
 
     fn le(loc: Loc) -> Self {
         Self::new(BinOpKind::Le, loc)
+    }
+
+    fn gt(loc: Loc) -> Self {
+        Self::new(BinOpKind::Gt, loc)
+    }
+
+    fn ge(loc: Loc) -> Self {
+        Self::new(BinOpKind::Ge, loc)
     }
 }
 
@@ -500,6 +533,7 @@ where Tokens: Iterator<Item = Token>,
     parse_left_binop(tokens, mul, parse_add_op)
 }
 
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 fn relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     where Tokens: Iterator<Item = Token>,
 {
@@ -512,6 +546,8 @@ fn relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
             .and_then(|tok| match tok.value {
                 TokenKind::Lt => Ok(BinOp::lt(tok.loc.clone())),
                 TokenKind::Le => Ok(BinOp::le(tok.loc.clone())),
+                TokenKind::Gt => Ok(BinOp::gt(tok.loc.clone())),
+                TokenKind::Ge => Ok(BinOp::ge(tok.loc.clone())),
                 _ => Err(ParseError::NotOperator(tok.clone())),
             })?;
         tokens.next();
@@ -638,9 +674,11 @@ impl fmt::Display for TokenKind {
             LParen => write!(f, "("),
             RParen => write!(f, ")"),
             Lt => write!(f, "<"),
+            Gt => write!(f, ">"),
             Eq => write!(f, "=="),
             Neq => write!(f, "!="),
             Le => write!(f, "<="),
+            Ge => write!(f, ">="),
         }
     }
 }
@@ -837,6 +875,16 @@ impl RpnCompiler {
                     BinOpKind::Le => {
                         buf.push_str("  cmp rax, rdi\n");
                         buf.push_str("  setle al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
+                    BinOpKind::Gt => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  setg al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
+                    BinOpKind::Ge => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  setge al\n");
                         buf.push_str("  movzb rax, al\n");
                     }
                 }
