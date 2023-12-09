@@ -11,6 +11,7 @@ use std::error::Error as StdError;
 use std::str::FromStr;
 use std::io;
 use std::io::Write;
+use crate::tokenize::lex;
 
 fn prompt(s: &str) -> io::Result<()> {
     use std::io::{stdout, Write};
@@ -32,16 +33,24 @@ fn main() {
     loop {
         // prompt("> ").unwrap();
         if let Some(Ok(line)) = lines.next() {
-            let ast = match line.parse::<Ast>() {
-                Ok(ast) => ast,
+            let tokens = match lex(line.as_str()) {
+                Ok(t) => t,
                 Err(e) => {
-                    e.show_diagnostic(&line);
+                    // e.show_diagnostic(&line);
+                    show_trace(e);
+                    continue;
+                }
+            };
+            let stmt_asts = match parse(tokens) {
+                Ok(asts) => asts,
+                Err(e) => {
+                    // e.show_diagnostic(&line);
                     show_trace(e);
                     continue;
                 }
             };
             // println!("{:?}", ast);
-            let asm = asm_generator.codegen(&ast);
+            let asm = asm_generator.codegen(stmt_asts);
             println!("{}", asm);
         } else {
             break;

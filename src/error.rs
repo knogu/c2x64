@@ -3,6 +3,7 @@ use crate::parse::*;
 
 use std::fmt;
 use std::error::Error as StdError;
+use std::fmt::write;
 use std::str::FromStr;
 
 /// 字句解析エラーと構文解析エラーを統合するエラー型
@@ -24,15 +25,15 @@ impl From<ParseError> for Error {
     }
 }
 
-impl FromStr for Ast {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // 内部では字句解析、構文解析の順に実行する
-        let tokens = lex(s)?;
-        let ast = parse(tokens)?;
-        Ok(ast)
-    }
-}
+// impl FromStr for Ast {
+//     type Err = Error;
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         // 内部では字句解析、構文解析の順に実行する
+//         let tokens = lex(s)?;
+//         let ast = parse(tokens)?;
+//         Ok(ast)
+//     }
+// }
 
 impl fmt::Display for Loc {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -58,6 +59,7 @@ impl fmt::Display for TokenKind {
             Neq => write!(f, "!="),
             Le => write!(f, "<="),
             Ge => write!(f, ">="),
+            Semicolon => write!(f, ";")
         }
     }
 }
@@ -90,6 +92,7 @@ impl fmt::Display for ParseError {
                 "{}: expression after '{}' is redundant",
                 tok.loc, tok.value
             ),
+            SemicolonNotFound => write!(f, "stmt should have semicolon at the end"),
             Eof => write!(f, "End of file"),
         }
     }
@@ -134,7 +137,7 @@ impl Error {
                     // redundant expressionはトークン以降行末までが余りなのでlocの終了位置を調整する
                     P::RedundantExpression(Token { loc, .. }) => Loc(loc.0, input.len()),
                     // EoFはloc情報を持っていないのでその場で作る
-                    P::Eof => Loc(input.len(), input.len() + 1),
+                    _ => Loc(input.len(), input.len() + 1),
                 };
                 (e, loc)
             }

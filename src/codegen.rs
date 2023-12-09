@@ -7,15 +7,17 @@ impl AsmGenerator {
         AsmGenerator
     }
 
-    pub fn codegen(&mut self, expr: &Ast) -> String {
+    pub fn codegen(&mut self, stmt_asts: Vec<Ast>) -> String {
         let mut buf = String::new();
         buf.push_str(".intel_syntax noprefix\n");
         buf.push_str(".globl main\n");
         buf.push_str("main:\n");
 
-        self.codegen_inner(expr, &mut buf);
+        for stmt_ast in &stmt_asts {
+            self.codegen_inner(stmt_ast, &mut buf);
+            buf.push_str("  pop rax\n");
+        }
 
-        buf.push_str("  pop rax\n");
         buf.push_str("  ret\n");
         buf
     }

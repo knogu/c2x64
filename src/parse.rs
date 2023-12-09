@@ -118,6 +118,7 @@ pub enum ParseError {
     UnclosedOpenParen(Token),
     /// 式の解析が終わったのにまだトークンが残っている
     RedundantExpression(Token),
+    SemicolonNotFound,
     /// パース途中で入力が終わった
     Eof,
 }
@@ -305,9 +306,39 @@ fn parse_expr<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     parse_equality(tokens)
 }
 
-pub fn parse(tokens: Vec<Token>) -> Result<Ast, ParseError> {
+fn parse_stmt<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+    where
+        Tokens: Iterator<Item = Token>,
+{
+    let res = parse_expr(tokens)?;
+    match tokens.next() {
+        Some(Token {
+                 value: TokenKind::Semicolon,
+                 ..
+             }) => { return Ok(res) },
+        _ => Err(ParseError::SemicolonNotFound),
+   }
+}
+
+fn program<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Vec<Ast>, ParseError>
+where
+Tokens: Iterator<Item = Token>,
+{
+    let mut stmts = vec![];
+    loop {
+        match tokens.peek() {
+            Some(_) => {
+                stmts.push(parse_stmt(tokens)?);
+            }
+            _ => break,
+        }
+    }
+    return Ok(stmts);
+}
+
+pub fn parse(tokens: Vec<Token>) -> Result<Vec<Ast>, ParseError> {
     let mut tokens = tokens.into_iter().peekable();
-    let ret = parse_expr(&mut tokens)?;
+    let ret = program(&mut tokens)?;
     match tokens.next() {
         Some(tok) => Err(ParseError::RedundantExpression(tok)),
         None => Ok(ret),

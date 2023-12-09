@@ -35,6 +35,7 @@ pub enum TokenKind {
     Le, // Less or Equal
     Gt, // Greater than
     Ge, // Greater or Equal
+    Semicolon,
 }
 
 pub type Token = Annot<TokenKind>;
@@ -90,6 +91,10 @@ impl Token {
 
     fn gt(loc: Loc) -> Self {
         Self::new(TokenKind::Gt, loc)
+    }
+
+    fn semicolon(loc: Loc) -> Self {
+        Self::new(TokenKind::Semicolon, loc)
     }
 }
 
@@ -197,6 +202,10 @@ fn lex_ge(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b">=").map(|(_, end)| (Token::ge(Loc(start, end)), end))
 }
 
+fn lex_semicolon(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b";").map(|(_, end)| (Token::semicolon(Loc(start, end)), end))
+}
+
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
     let pos = recognize_many(input, pos, |b| b" \n\t".contains(&b));
     Ok(((), pos))
@@ -246,6 +255,7 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             b')' => lex_a_token!(lex_rparen(input, pos)),
             b'<' => lex_a_token!(lex_lt(input, pos)),
             b'>' => lex_a_token!(lex_gt(input, pos)),
+            b';' => lex_a_token!(lex_semicolon(input, pos)),
             // 空白を扱う
             b' ' | b'\n' | b'\t' => {
                 let ((), p) = skip_spaces(input, pos)?;
