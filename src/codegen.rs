@@ -43,6 +43,11 @@ impl AsmGenerator {
                         buf.push_str("  push rax\n");
                     }
                 }
+            },
+            Return {ref e} => {
+                self.codegen_inner(e, buf);
+                buf.push_str("  pop rax\n");
+                buf.push_str("  ret\n");
             }
             BinOp {
                 ref op,

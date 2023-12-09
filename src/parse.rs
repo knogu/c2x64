@@ -81,6 +81,7 @@ pub enum AstKind {
     Num(u64),
     UniOp {op: UniOp, e: Box<Ast>},
     BinOp {op: BinOp, l: Box<Ast>, r: Box<Ast>},
+    Return {e: Box<Ast>},
 }
 
 pub type Ast = Annot<AstKind>;
@@ -103,6 +104,10 @@ impl Ast {
             },
             loc,
         )
+    }
+
+    fn return_(e: Ast, loc: Loc) -> Self {
+        Self::new(AstKind::Return { e: Box::new(e) }, loc)
     }
 }
 
@@ -306,18 +311,39 @@ fn parse_expr<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     parse_equality(tokens)
 }
 
+// stmt = expr ";"
+//      | "return" expr ";"
 fn parse_stmt<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     where
         Tokens: Iterator<Item = Token>,
 {
-    let res = parse_expr(tokens)?;
-    match tokens.next() {
-        Some(Token {
-                 value: TokenKind::Semicolon,
-                 ..
-             }) => { return Ok(res) },
-        _ => Err(ParseError::SemicolonNotFound),
-   }
+    let next_token = tokens.peek().ok_or(ParseError::Eof)?.clone();
+
+    let res = match next_token.value {
+        TokenKind::Return => {
+            tokens.next();
+            let e = parse_expr(tokens)?;
+            let ret = Ok(Ast::return_(e, next_token.loc.clone()));
+            let _ = match tokens.next() {
+                Some(Token {
+                         value: TokenKind::Semicolon,
+                         ..
+                     }) => { return ret },
+                _ => return Err(ParseError::SemicolonNotFound),
+            };
+        }
+        _ => {
+            let res = Ok(parse_expr(tokens)?);
+            let _ = match tokens.next() {
+                Some(Token {
+                         value: TokenKind::Semicolon,
+                         ..
+                     }) => { return res },
+                _ => return Err(ParseError::SemicolonNotFound),
+            };
+        }
+    };
+    return res
 }
 
 fn program<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Vec<Ast>, ParseError>

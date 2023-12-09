@@ -36,6 +36,7 @@ pub enum TokenKind {
     Gt, // Greater than
     Ge, // Greater or Equal
     Semicolon,
+    Return,
 }
 
 pub type Token = Annot<TokenKind>;
@@ -95,6 +96,10 @@ impl Token {
 
     fn semicolon(loc: Loc) -> Self {
         Self::new(TokenKind::Semicolon, loc)
+    }
+
+    fn return_(loc: Loc) -> Self {
+        Self::new(TokenKind::Return, loc)
     }
 }
 
@@ -206,9 +211,21 @@ fn lex_semicolon(input: &[u8], start: usize) -> Result<(Token, usize), LexError>
     consume_byte(input, start, b";").map(|(_, end)| (Token::semicolon(Loc(start, end)), end))
 }
 
+fn lex_return(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b"return").map(|(_, end)| (Token::return_(Loc(start, end)), end))
+}
+
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
     let pos = recognize_many(input, pos, |b| b" \n\t".contains(&b));
     Ok(((), pos))
+}
+
+fn starts_with(input: &[u8], with: &[u8], pos: usize) -> bool {
+    let size = with.len();
+    if pos + size - 1 >= input.len() {
+        return false
+    }
+    return &input[pos..pos + size] == with
 }
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
@@ -226,6 +243,10 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     }
 
     while pos < input.len() {
+        if starts_with(input, b"return", pos) {
+            lex_a_token!(lex_return(input, pos));
+            continue
+        }
         if pos + 1 < input.len() {
             if &input[pos..pos+2] == b"==" {
                 lex_a_token!(lex_eq(input, pos));

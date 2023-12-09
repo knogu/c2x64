@@ -8,4 +8,6 @@ main:
   push 3
   pop rax
   ret
+  pop rax
+  ret
 

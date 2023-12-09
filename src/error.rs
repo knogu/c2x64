@@ -59,7 +59,8 @@ impl fmt::Display for TokenKind {
             Neq => write!(f, "!="),
             Le => write!(f, "<="),
             Ge => write!(f, ">="),
-            Semicolon => write!(f, ";")
+            Semicolon => write!(f, ";"),
+            Return => write!(f, "return")
         }
     }
 }
