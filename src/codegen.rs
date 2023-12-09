@@ -15,7 +15,6 @@ impl AsmGenerator {
 
         for stmt_ast in &stmt_asts {
             self.codegen_inner(stmt_ast, &mut buf);
-            buf.push_str("  pop rax\n");
         }
 
         buf.push_str("  ret\n");
@@ -48,6 +47,10 @@ impl AsmGenerator {
                 self.codegen_inner(e, buf);
                 buf.push_str("  pop rax\n");
                 buf.push_str("  ret\n");
+            }
+            ExpressionStmt {ref e} => {
+                self.codegen_inner(e, buf);
+                buf.push_str("  add rsp, 8\n");
             }
             BinOp {
                 ref op,

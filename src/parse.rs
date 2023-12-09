@@ -82,6 +82,7 @@ pub enum AstKind {
     UniOp {op: UniOp, e: Box<Ast>},
     BinOp {op: BinOp, l: Box<Ast>, r: Box<Ast>},
     Return {e: Box<Ast>},
+    ExpressionStmt {e: Box<Ast>},
 }
 
 pub type Ast = Annot<AstKind>;
@@ -108,6 +109,10 @@ impl Ast {
 
     fn return_(e: Ast, loc: Loc) -> Self {
         Self::new(AstKind::Return { e: Box::new(e) }, loc)
+    }
+
+    fn expression_stmt(e: Ast, loc: Loc) -> Self {
+        Self::new(AstKind::ExpressionStmt { e: Box::new(e) }, loc)
     }
 }
 
@@ -333,12 +338,13 @@ fn parse_stmt<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
             };
         }
         _ => {
-            let res = Ok(parse_expr(tokens)?);
+            let e = parse_expr(tokens)?;
+            let ret = Ok(Ast::expression_stmt(e, next_token.loc.clone()));
             let _ = match tokens.next() {
                 Some(Token {
                          value: TokenKind::Semicolon,
                          ..
-                     }) => { return res },
+                     }) => { return ret },
                 _ => return Err(ParseError::SemicolonNotFound),
             };
         }
