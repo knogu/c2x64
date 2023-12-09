@@ -35,6 +35,8 @@ enum TokenKind {
     RParen,
     Eq,
     Neq,
+    Lt, // Less than
+    Le, // Less or Equal
 }
 
 type Token = Annot<TokenKind>;
@@ -74,6 +76,14 @@ impl Token {
 
     fn neq(loc: Loc) -> Self {
         Self::new(TokenKind::Neq, loc)
+    }
+
+    fn le(loc: Loc) -> Self {
+        Self::new(TokenKind::Le, loc)
+    }
+
+    fn lt(loc: Loc) -> Self {
+        Self::new(TokenKind::Lt, loc)
     }
 }
 
@@ -158,12 +168,20 @@ fn lex_rparen(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b")").map(|(_, end)| (Token::rparen(Loc(start, end)), end))
 }
 
+fn lex_lt(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b"<").map(|(_, end)| (Token::lt(Loc(start, end)), end))
+}
+
 fn lex_eq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"==").map(|(_, end)| (Token::eq(Loc(start, end)), end))
 }
 
 fn lex_neq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"!=").map(|(_, end)| (Token::neq(Loc(start, end)), end))
+}
+
+fn lex_le(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b"<=").map(|(_, end)| (Token::le(Loc(start, end)), end))
 }
 
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
@@ -195,6 +213,10 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
                 lex_a_token!(lex_neq(input, pos));
                 continue
             }
+            if &input[pos..pos+2] == b"<=" {
+                lex_a_token!(lex_le(input, pos));
+                continue
+            }
         }
         match input[pos] {
             // 遷移図通りの実装
@@ -205,6 +227,7 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             b'/' => lex_a_token!(lex_slash(input, pos)),
             b'(' => lex_a_token!(lex_lparen(input, pos)),
             b')' => lex_a_token!(lex_rparen(input, pos)),
+            b'<' => lex_a_token!(lex_lt(input, pos)),
             // 空白を扱う
             b' ' | b'\n' | b'\t' => {
                 let ((), p) = skip_spaces(input, pos)?;
@@ -261,6 +284,8 @@ enum BinOpKind {
     Div,
     Eq,
     Neq,
+    Lt,
+    Le,
 }
 
 type BinOp = Annot<BinOpKind>;
@@ -288,6 +313,14 @@ impl BinOp {
 
     fn neq(loc: Loc) -> Self {
         Self::new(BinOpKind::Neq, loc)
+    }
+
+    fn lt(loc: Loc) -> Self {
+        Self::new(BinOpKind::Lt, loc)
+    }
+
+    fn le(loc: Loc) -> Self {
+        Self::new(BinOpKind::Le, loc)
     }
 }
 
@@ -470,23 +503,22 @@ where Tokens: Iterator<Item = Token>,
 fn relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
     where Tokens: Iterator<Item = Token>,
 {
-    add(tokens)
-    // fn parse_relational_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
-    //     where Tokens: Iterator<Item = Token>,
-    // {
-    //     let op = tokens
-    //         .peek()
-    //         .ok_or(ParseError::Eof)
-    //         .and_then(|tok| match tok.value {
-    //             TokenKind::Eq => Ok(BinOp::eq(tok.loc.clone())),
-    //             TokenKind::Neq => Ok(BinOp::neq(tok.loc.clone())),
-    //             _ => Err(ParseError::NotOperator(tok.clone())),
-    //         })?;
-    //     tokens.next();
-    //     Ok(op)
-    // }
-    //
-    // parse_left_binop(tokens, relational, par)
+    fn parse_relational_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
+        where Tokens: Iterator<Item = Token>,
+    {
+        let op = tokens
+            .peek()
+            .ok_or(ParseError::Eof)
+            .and_then(|tok| match tok.value {
+                TokenKind::Lt => Ok(BinOp::lt(tok.loc.clone())),
+                TokenKind::Le => Ok(BinOp::le(tok.loc.clone())),
+                _ => Err(ParseError::NotOperator(tok.clone())),
+            })?;
+        tokens.next();
+        Ok(op)
+    }
+
+    parse_left_binop(tokens, add, parse_relational_op)
 }
 
 // equality   = relational ("==" relational | "!=" relational)*
@@ -605,8 +637,10 @@ impl fmt::Display for TokenKind {
             Slash => write!(f, "/"),
             LParen => write!(f, "("),
             RParen => write!(f, ")"),
+            Lt => write!(f, "<"),
             Eq => write!(f, "=="),
             Neq => write!(f, "!="),
+            Le => write!(f, "<="),
         }
     }
 }
@@ -793,6 +827,16 @@ impl RpnCompiler {
                     BinOpKind::Neq => {
                         buf.push_str("  cmp rax, rdi\n");
                         buf.push_str("  setne al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
+                    BinOpKind::Lt => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  setl al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
+                    BinOpKind::Le => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  setle al\n");
                         buf.push_str("  movzb rax, al\n");
                     }
                 }
