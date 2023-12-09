@@ -34,6 +34,7 @@ enum TokenKind {
     LParen,
     RParen,
     Eq,
+    Neq,
 }
 
 type Token = Annot<TokenKind>;
@@ -69,6 +70,10 @@ impl Token {
 
     fn eq(loc: Loc) -> Self {
         Self::new(TokenKind::Eq, loc)
+    }
+
+    fn neq(loc: Loc) -> Self {
+        Self::new(TokenKind::Neq, loc)
     }
 }
 
@@ -156,6 +161,11 @@ fn lex_rparen(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
 fn lex_eq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
     consume_byte(input, start, b"==").map(|(_, end)| (Token::eq(Loc(start, end)), end))
 }
+
+fn lex_neq(input: &[u8], start: usize) -> Result<(Token, usize), LexError> {
+    consume_byte(input, start, b"!=").map(|(_, end)| (Token::neq(Loc(start, end)), end))
+}
+
 fn skip_spaces(input: &[u8], pos: usize) -> Result<((), usize), LexError> {
     let pos = recognize_many(input, pos, |b| b" \n\t".contains(&b));
     Ok(((), pos))
@@ -179,6 +189,10 @@ fn lex(input: &str) -> Result<Vec<Token>, LexError> {
         if pos + 1 < input.len() {
             if &input[pos..pos+2] == b"==" {
                 lex_a_token!(lex_eq(input, pos));
+                continue
+            }
+            if &input[pos..pos+2] == b"!=" {
+                lex_a_token!(lex_neq(input, pos));
                 continue
             }
         }
@@ -245,6 +259,8 @@ enum BinOpKind {
     Sub,
     Mult,
     Div,
+    Eq,
+    Neq,
 }
 
 type BinOp = Annot<BinOpKind>;
@@ -264,6 +280,14 @@ impl BinOp {
 
     fn div(loc: Loc) -> Self {
         Self::new(BinOpKind::Div, loc)
+    }
+
+    fn eq(loc: Loc) -> Self {
+        Self::new(BinOpKind::Eq, loc)
+    }
+
+    fn neq(loc: Loc) -> Self {
+        Self::new(BinOpKind::Neq, loc)
     }
 }
 
@@ -443,18 +467,48 @@ where Tokens: Iterator<Item = Token>,
     parse_left_binop(tokens, mul, parse_add_op)
 }
 
-// fn parse_relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
-//     where Tokens: Iterator<Item = Token>,
-// {
-//
-// }
-//
-//
+fn relational<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
+    where Tokens: Iterator<Item = Token>,
+{
+    add(tokens)
+    // fn parse_relational_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
+    //     where Tokens: Iterator<Item = Token>,
+    // {
+    //     let op = tokens
+    //         .peek()
+    //         .ok_or(ParseError::Eof)
+    //         .and_then(|tok| match tok.value {
+    //             TokenKind::Eq => Ok(BinOp::eq(tok.loc.clone())),
+    //             TokenKind::Neq => Ok(BinOp::neq(tok.loc.clone())),
+    //             _ => Err(ParseError::NotOperator(tok.clone())),
+    //         })?;
+    //     tokens.next();
+    //     Ok(op)
+    // }
+    //
+    // parse_left_binop(tokens, relational, par)
+}
+
 // equality   = relational ("==" relational | "!=" relational)*
 fn parse_equality<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
 where Tokens: Iterator<Item = Token>,
 {
-    add(tokens)
+    fn parse_eq_op<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<BinOp, ParseError>
+        where Tokens: Iterator<Item = Token>,
+    {
+        let op = tokens
+            .peek()
+            .ok_or(ParseError::Eof)
+            .and_then(|tok| match tok.value {
+                TokenKind::Eq => Ok(BinOp::eq(tok.loc.clone())),
+                TokenKind::Neq => Ok(BinOp::neq(tok.loc.clone())),
+                _ => Err(ParseError::NotOperator(tok.clone())),
+            })?;
+        tokens.next();
+        Ok(op)
+    }
+
+    parse_left_binop(tokens, relational, parse_eq_op)
 }
 
 fn parse_expr<Tokens>(tokens: &mut Peekable<Tokens>) -> Result<Ast, ParseError>
@@ -552,6 +606,7 @@ impl fmt::Display for TokenKind {
             LParen => write!(f, "("),
             RParen => write!(f, ")"),
             Eq => write!(f, "=="),
+            Neq => write!(f, "!="),
         }
     }
 }
@@ -730,28 +785,20 @@ impl RpnCompiler {
                         buf.push_str("  cqo\n");
                         buf.push_str("  idiv rdi\n");
                     }
+                    BinOpKind::Eq => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  sete al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
+                    BinOpKind::Neq => {
+                        buf.push_str("  cmp rax, rdi\n");
+                        buf.push_str("  setne al\n");
+                        buf.push_str("  movzb rax, al\n");
+                    }
                 }
 
                 buf.push_str("  push rax\n");
             }
-        }
-    }
-
-    fn compile_uniop(&mut self, op: &UniOp, buf: &mut String) {
-        use self::UniOpKind::*;
-        match op.value {
-            Plus => buf.push_str("+"),
-            Minus => buf.push_str("-"),
-        }
-    }
-
-    fn compile_binop(&mut self, op: &BinOp, buf: &mut String) {
-        use self::BinOpKind::*;
-        match op.value {
-            Add => buf.push_str("+"),
-            Sub => buf.push_str("-"),
-            Mult => buf.push_str("*"),
-            Div => buf.push_str("/"),
         }
     }
 }
